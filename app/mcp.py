@@ -7,9 +7,49 @@ from typing import Any
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from app.bounty_availability import BOUNTY_AVAILABILITY_FILTERS
+from app.bounty_sorting import BOUNTY_SORT_OPTIONS
 from app.ledger.service import LedgerError
 
 MCPToolHandler = Callable[[str, str, dict[str, Any]], str | dict[str, Any]]
+
+POSITIVE_INTEGER_INPUT_SCHEMA = {
+    "anyOf": [
+        {"type": "integer", "minimum": 1},
+        {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$",
+            "description": "Positive integer value encoded as a string.",
+        },
+    ],
+}
+
+LOWERCASE_HEX_64_INPUT_SCHEMA = {
+    "type": "string",
+    "minLength": 64,
+    "maxLength": 64,
+    "pattern": "^[0-9a-f]{64}$",
+}
+
+LOWERCASE_HEX_128_INPUT_SCHEMA = {
+    "type": "string",
+    "minLength": 128,
+    "maxLength": 128,
+    "pattern": "^[0-9a-f]{128}$",
+}
+
+
+def _mcp_input_schema(
+    properties: dict[str, Any], *, required: list[str] | None = None
+) -> dict[str, Any]:
+    schema: dict[str, Any] = {
+        "type": "object",
+        "properties": properties,
+    }
+    if required:
+        schema["required"] = required
+    return schema
+
 
 MCP_TOOLS: list[dict[str, Any]] = [
     {
@@ -17,27 +57,183 @@ MCP_TOOLS: list[dict[str, Any]] = [
         "description": (
             "List MRWK bounties with optional status, q, sort, limit, and availability filters"
         ),
+        "inputSchema": _mcp_input_schema(
+            {
+                "status": {
+                    "type": "string",
+                    "enum": ["open", "paid", "closed"],
+                    "default": "open",
+                    "description": "Bounty status filter.",
+                },
+                "q": {
+                    "type": "string",
+                    "description": "Optional text or issue-number search query.",
+                },
+                "sort": {
+                    "type": "string",
+                    "enum": list(BOUNTY_SORT_OPTIONS),
+                    "default": "newest",
+                    "description": "Sort order for returned bounties.",
+                },
+                "limit": {
+                    **POSITIVE_INTEGER_INPUT_SCHEMA,
+                    "default": 25,
+                    "description": "Maximum number of bounties to return, from 1 to 100.",
+                },
+                "availability": {
+                    "type": "string",
+                    "enum": sorted(BOUNTY_AVAILABILITY_FILTERS),
+                    "default": "all",
+                    "description": "Effective availability filter.",
+                },
+            },
+        ),
     },
     {
         "name": "get_bounty",
         "description": "Get a bounty by id, optionally with accepted awards",
+        "inputSchema": _mcp_input_schema(
+            {
+                "id": {
+                    **POSITIVE_INTEGER_INPUT_SCHEMA,
+                    "description": "Internal MRWK bounty id.",
+                },
+                "include_awards": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Include accepted award proof rows.",
+                },
+            },
+            required=["id"],
+        ),
     },
     {
         "name": "list_bounty_attempts",
         "description": "List advisory active-attempt reservations for a bounty",
+        "inputSchema": _mcp_input_schema(
+            {
+                "bounty_id": {
+                    **POSITIVE_INTEGER_INPUT_SCHEMA,
+                    "description": "Internal MRWK bounty id.",
+                },
+                "include_expired": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Include expired attempt reservations.",
+                },
+                "limit": {
+                    **POSITIVE_INTEGER_INPUT_SCHEMA,
+                    "default": 25,
+                    "description": "Maximum number of attempts to return, from 1 to 100.",
+                },
+            },
+            required=["bounty_id"],
+        ),
     },
-    {"name": "get_balance", "description": "Get an account balance"},
+    {
+        "name": "get_balance",
+        "description": "Get an account balance",
+        "inputSchema": _mcp_input_schema(
+            {
+                "account": {
+                    "type": "string",
+                    "description": (
+                        "MRWK ledger account such as treasury:mrwk, github:<login>, or mrwk1..."
+                    ),
+                },
+            },
+            required=["account"],
+        ),
+    },
     {
         "name": "register_wallet",
         "description": "Register an MRWK wallet public key",
+        "inputSchema": _mcp_input_schema(
+            {
+                "public_key_hex": {
+                    **LOWERCASE_HEX_64_INPUT_SCHEMA,
+                    "description": "64-character lowercase hex Ed25519 public key.",
+                },
+                "label": {
+                    "type": "string",
+                    "description": "Optional wallet display label.",
+                },
+            },
+            required=["public_key_hex"],
+        ),
     },
-    {"name": "get_wallet", "description": "Get an MRWK wallet by address"},
+    {
+        "name": "get_wallet",
+        "description": "Get an MRWK wallet by address",
+        "inputSchema": _mcp_input_schema(
+            {
+                "address": {
+                    "type": "string",
+                    "description": "Registered mrwk1 wallet address.",
+                },
+            },
+            required=["address"],
+        ),
+    },
     {
         "name": "submit_wallet_transfer",
         "description": "Submit a signed MRWK wallet transfer",
+        "inputSchema": _mcp_input_schema(
+            {
+                "from_address": {
+                    "type": "string",
+                    "description": "Sender registered mrwk1 wallet address.",
+                },
+                "to_address": {
+                    "type": "string",
+                    "description": "Receiver registered mrwk1 wallet address.",
+                },
+                "amount_mrwk": {
+                    "type": "string",
+                    "description": "Decimal MRWK amount to transfer.",
+                },
+                "nonce": {
+                    **POSITIVE_INTEGER_INPUT_SCHEMA,
+                    "description": "Wallet transfer nonce.",
+                },
+                "memo": {
+                    "type": "string",
+                    "description": "Optional transfer memo.",
+                },
+                "signature_hex": {
+                    **LOWERCASE_HEX_128_INPUT_SCHEMA,
+                    "description": "128-character lowercase hex Ed25519 signature.",
+                },
+            },
+            required=["from_address", "to_address", "amount_mrwk", "nonce", "signature_hex"],
+        ),
     },
-    {"name": "get_ledger_entry", "description": "Get a ledger entry"},
-    {"name": "get_proof", "description": "Get a public proof by hash"},
+    {
+        "name": "get_ledger_entry",
+        "description": "Get a ledger entry",
+        "inputSchema": _mcp_input_schema(
+            {
+                "sequence": {
+                    **POSITIVE_INTEGER_INPUT_SCHEMA,
+                    "description": "MRWK ledger sequence number.",
+                },
+            },
+            required=["sequence"],
+        ),
+    },
+    {
+        "name": "get_proof",
+        "description": "Get a public proof by hash",
+        "inputSchema": _mcp_input_schema(
+            {
+                "hash": {
+                    **LOWERCASE_HEX_64_INPUT_SCHEMA,
+                    "description": "64-character lowercase hex public proof hash.",
+                },
+            },
+            required=["hash"],
+        ),
+    },
     {
         "name": "submit_work_proof",
         "description": (

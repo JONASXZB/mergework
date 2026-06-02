@@ -250,6 +250,50 @@ def test_mcp_tools_list_and_call(sqlite_url: str) -> None:
         "status, q, sort, limit, and availability filters"
         in tools["result"]["tools"][0]["description"]
     )
+    tool_schemas = {tool["name"]: tool["inputSchema"] for tool in tools["result"]["tools"]}
+    assert all(schema["type"] == "object" for schema in tool_schemas.values())
+    assert all("properties" in schema for schema in tool_schemas.values())
+    assert tool_schemas["list_bounties"]["properties"]["status"]["enum"] == [
+        "open",
+        "paid",
+        "closed",
+    ]
+    assert tool_schemas["list_bounties"]["properties"]["sort"]["enum"] == [
+        "newest",
+        "reward",
+        "available",
+        "awards",
+    ]
+    assert tool_schemas["list_bounties"]["properties"]["availability"]["enum"] == [
+        "all",
+        "effectively_open",
+    ]
+    assert tool_schemas["get_bounty"]["required"] == ["id"]
+    assert tool_schemas["get_bounty"]["properties"]["id"]["anyOf"][0]["minimum"] == 1
+    assert tool_schemas["get_bounty"]["properties"]["include_awards"]["type"] == "boolean"
+    assert tool_schemas["list_bounty_attempts"]["required"] == ["bounty_id"]
+    assert (
+        tool_schemas["list_bounty_attempts"]["properties"]["include_expired"]["type"] == "boolean"
+    )
+    assert tool_schemas["get_balance"]["required"] == ["account"]
+    assert tool_schemas["register_wallet"]["required"] == ["public_key_hex"]
+    assert tool_schemas["register_wallet"]["properties"]["public_key_hex"]["pattern"] == (
+        "^[0-9a-f]{64}$"
+    )
+    assert tool_schemas["get_wallet"]["required"] == ["address"]
+    assert tool_schemas["submit_wallet_transfer"]["required"] == [
+        "from_address",
+        "to_address",
+        "amount_mrwk",
+        "nonce",
+        "signature_hex",
+    ]
+    assert tool_schemas["submit_wallet_transfer"]["properties"]["signature_hex"]["pattern"] == (
+        "^[0-9a-f]{128}$"
+    )
+    assert tool_schemas["get_ledger_entry"]["required"] == ["sequence"]
+    assert tool_schemas["get_proof"]["required"] == ["hash"]
+    assert tool_schemas["get_proof"]["properties"]["hash"]["pattern"] == "^[0-9a-f]{64}$"
     submit_tool = next(
         tool for tool in tools["result"]["tools"] if tool["name"] == "submit_work_proof"
     )
